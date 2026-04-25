@@ -4,6 +4,7 @@ import { tool, Tool } from 'ai';
 import { ToolServiceI } from '../types';
 import { getEnabledTools } from '../config';
 import FreeWebSearchService from './free-web-search-service';
+import SearxngSearchService from './searxng-search-service';
 
 interface SearchResult {
   title: string;
@@ -29,15 +30,28 @@ export default class ToolService implements ToolServiceI {
 
   private readonly freeWebSearchService: FreeWebSearchService;
 
+  private readonly searxngSearchService: SearxngSearchService | null;
+
   private readonly webSearchCache = new Map<string, CachedSearchResult>();
 
   private readonly freeWebSearchCache = new Map<string, CachedSearchResult>();
 
+  private readonly searxngSearchCache = new Map<string, CachedSearchResult>();
+
   private freeWebSearchDisabledMessage = '';
 
-  constructor(valueSerpApiKey: string) {
+  private searxngDisabledMessage = '';
+
+  constructor(
+    valueSerpApiKey: string,
+    searxngBaseUrl = '',
+    searxngApiKey = '',
+  ) {
     this.valueSerpApiKey = valueSerpApiKey;
     this.freeWebSearchService = new FreeWebSearchService();
+    this.searxngSearchService = searxngBaseUrl
+      ? new SearxngSearchService(searxngBaseUrl, searxngApiKey)
+      : null;
   }
 
   /**
@@ -59,6 +73,16 @@ export default class ToolService implements ToolServiceI {
           const results = await this.performSearch(normalizedQuery);
           return this.formatSearchResults(results);
         },
+      });
+    }
+
+    if (getEnabledTools().includes('searxngWebSearch') && this.searxngSearchService) {
+      return this.searchWithCache({
+        query: q,
+        cache: this.searxngSearchCache,
+        unavailableMessage: this.searxngDisabledMessage || 'Search unavailable',
+        searchTypeLabel: 'SearXNG search',
+        executor: (normalizedQuery) => this.runSearxngSearch(normalizedQuery),
       });
     }
 
@@ -108,6 +132,27 @@ export default class ToolService implements ToolServiceI {
               const results = await this.performSearch(normalizedQuery);
               return this.formatSearchResults(results);
             },
+          });
+        },
+      });
+    }
+
+    if (getEnabledTools().includes('searxngWebSearch') && this.searxngSearchService) {
+      tools.searxngWebSearch = tool({
+        description: 'Search the web for business information using a self-hosted SearXNG instance. Use when payee is unfamiliar or category context is unclear',
+        parameters: z.object({
+          query: z.string().describe(
+            'Combination of payee name and business type. '
+            + 'Example: "StudntLN" or "Student Loan"',
+          ),
+        }),
+        execute: async ({ query }: { query: string }): Promise<string> => {
+          return this.searchWithCache({
+            query,
+            cache: this.searxngSearchCache,
+            unavailableMessage: this.searxngDisabledMessage || 'Search unavailable',
+            searchTypeLabel: 'SearXNG search',
+            executor: (normalizedQuery) => this.runSearxngSearch(normalizedQuery),
           });
         },
       });
@@ -213,6 +258,31 @@ export default class ToolService implements ToolServiceI {
     const result = await executor(normalizedQuery);
     this.setCachedResult(cache, cacheKey, result);
     return result;
+  }
+
+  private async runSearxngSearch(normalizedQuery: string): Promise<string> {
+    if (!this.searxngSearchService) return 'Search unavailable';
+    if (this.searxngDisabledMessage) return this.searxngDisabledMessage;
+    try {
+      const results = await this.searxngSearchService.search(normalizedQuery);
+      return this.searxngSearchService.formatSearchResults(results);
+    } catch (error) {
+      this.setSearxngBackoffOnHttpError(error);
+      console.error('Error during SearXNG search:', error);
+      return this.searxngDisabledMessage || 'Web search failed. Please try again later.';
+    }
+  }
+
+  private setSearxngBackoffOnHttpError(error: unknown): void {
+    if (this.searxngDisabledMessage) return;
+    const status = error instanceof Error
+        && 'statusCode' in error
+        && typeof (error as { statusCode?: unknown }).statusCode === 'number'
+      ? (error as { statusCode: number }).statusCode
+      : NaN;
+    if (status === 401 || status === 403 || status === 429) {
+      this.searxngDisabledMessage = `SearXNG search is temporarily unavailable (HTTP ${status}).`;
+    }
   }
 
   private setFreeWebSearchBackoffOnHttpError(error: unknown): void {

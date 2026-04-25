@@ -35,6 +35,8 @@ import {
   openrouterTitle,
   password,
   promptTemplate,
+  searxngApiKey,
+  searxngBaseURL,
   serverURL,
   valueSerpApiKey,
 } from './config';
@@ -58,7 +60,10 @@ import RateLimiter from './utils/rate-limiter';
 // Create tool service if API key is available and tools are enabled
 export function createToolService(): ToolService | undefined {
   // freeWebSearch does not require ValueSerp; only the paid `webSearch` does.
-  return getEnabledTools().length > 0 ? new ToolService(valueSerpApiKey) : undefined;
+  // searxngWebSearch needs SEARXNG_BASE_URL — passed through to the service.
+  return getEnabledTools().length > 0
+    ? new ToolService(valueSerpApiKey, searxngBaseURL, searxngApiKey)
+    : undefined;
 }
 
 const toolService = createToolService();

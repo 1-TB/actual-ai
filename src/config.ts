@@ -40,6 +40,8 @@ export const groqApiKey = process.env.GROQ_API_KEY ?? '';
 export const groqModel = process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
 export const groqBaseURL = process.env.GROQ_BASE_URL ?? 'https://api.groq.com/openai/v1';
 export const valueSerpApiKey = process.env.VALUESERP_API_KEY ?? '';
+export const searxngBaseURL = process.env.SEARXNG_BASE_URL ?? '';
+export const searxngApiKey = process.env.SEARXNG_API_KEY ?? '';
 export interface FeatureFlag {
   enabled: boolean;
   defaultValue: boolean;
@@ -132,6 +134,13 @@ function registerToolFeatures() {
     defaultValue: false,
     description: 'Enable free web search capability for merchant lookup (self-hosted alternative to ValueSerp)',
     options: ['freeWebSearch'],
+  };
+
+  features.searxngWebSearch = {
+    enabled: enabledFeatures.includes('searxngWebSearch') || legacyTools.includes('searxngWebSearch'),
+    defaultValue: false,
+    description: 'Enable web search via a self-hosted SearXNG instance (set SEARXNG_BASE_URL)',
+    options: ['searxngWebSearch'],
   };
 
   // Additional tools can be added here following the same pattern
